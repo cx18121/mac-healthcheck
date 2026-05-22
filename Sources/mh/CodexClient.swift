@@ -5,6 +5,7 @@ enum CodexClientError: Error {
     case malformedOutput(String)
     case noAgentMessage
     case decodingFailed(String)
+    case sessionNotStarted          // resume() called before openSession()
 }
 
 actor CodexClient {
@@ -32,8 +33,11 @@ actor CodexClient {
             stdin: prompt,
             timeout: Self.callTimeout
         )
-        let (threadId, payload) = try parseJsonl(result.stdout)
-        self.threadId = threadId
+        let (parsedThreadId, payload) = try parseJsonl(result.stdout)
+        guard let tid = parsedThreadId else {
+            throw CodexClientError.malformedOutput("thread.started event missing from Codex output")
+        }
+        self.threadId = tid
         return try decode(payload, as: T.self)
     }
 
@@ -44,7 +48,7 @@ actor CodexClient {
         decoding: T.Type
     ) async throws -> T {
         guard let tid = threadId else {
-            throw CodexClientError.malformedOutput("resume called before openSession")
+            throw CodexClientError.sessionNotStarted
         }
         var args = ["exec", "resume", tid, "--json"]
         if let schema = schemaFile {
@@ -75,6 +79,9 @@ actor CodexClient {
             case "thread.started":
                 threadId = obj["thread_id"] as? String
             case "item.completed":
+                // If Codex emits multiple agent_message items in one turn (e.g. streaming
+                // chunks or tool-call sequences), last one wins — the final message is the
+                // complete schema-conformant JSON.
                 if let item = obj["item"] as? [String: Any],
                    item["type"] as? String == "agent_message",
                    let text = item["text"] as? String {

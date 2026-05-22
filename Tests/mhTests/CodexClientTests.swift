@@ -60,6 +60,8 @@ struct CodexClientTests {
             Issue.record("expected throw")
         } catch CodexClientError.codexError(let msg) {
             #expect(msg.contains("rate limited"))
+            // Rule 5: threadId must not be set when the session failed
+            #expect(await client.threadId == nil)
         }
     }
 }
