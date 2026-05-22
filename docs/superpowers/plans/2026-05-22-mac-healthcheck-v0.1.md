@@ -500,8 +500,14 @@ import Foundation
 // MARK: - Shallow per-domain structs
 
 struct CPUShallow: Codable, Sendable {
-    let loadAverage: [Double]      // 1, 5, 15 minute
+    let loadAverage: LoadAverage   // named struct for schema clarity
     let topProcesses: [TopProcess] // up to 5
+}
+
+struct LoadAverage: Codable, Sendable {
+    let oneMin: Double
+    let fiveMin: Double
+    let fifteenMin: Double
 }
 
 struct TopProcess: Codable, Sendable {
@@ -533,7 +539,9 @@ struct BatteryShallow: Codable, Sendable {
     let percent: Int
     let onAC: Bool
     let charging: Bool
-    let timeToEmptyMinutes: Int?
+    /// Minutes to empty when discharging; minutes to full when charging.
+    /// Read jointly with `charging` for semantic interpretation.
+    let timeRemainingMinutes: Int?
 }
 
 // MARK: - Composite snapshots
@@ -719,7 +727,9 @@ struct CPUGathererShallowTests {
         guard case .value(let cpu) = result else {
             Issue.record("expected .value, got \(result)"); return
         }
-        #expect(cpu.loadAverage == [4.21, 3.85, 3.40])
+        #expect(cpu.loadAverage.oneMin == 4.21)
+        #expect(cpu.loadAverage.fiveMin == 3.85)
+        #expect(cpu.loadAverage.fifteenMin == 3.40)
         #expect(cpu.topProcesses.count == 5)
         #expect(cpu.topProcesses.first?.pid == 12345)
         #expect(cpu.topProcesses.first?.cpuPercent == 380.0)
@@ -816,7 +826,8 @@ enum CPUGatherer {
             .prefix(5)
             .compactMap(parseTopRow(_:))
 
-        return .value(CPUShallow(loadAverage: loadAvg, topProcesses: Array(procRows)))
+        let loadAverage = LoadAverage(oneMin: loadAvg[0], fiveMin: loadAvg[1], fifteenMin: loadAvg[2])
+        return .value(CPUShallow(loadAverage: loadAverage, topProcesses: Array(procRows)))
     }
 
     /// "12345  380.0 12.5   Slack Helper (Renderer)"
@@ -1260,7 +1271,7 @@ struct BatteryGathererShallowTests {
         }
         #expect(bat.percent == 67)
         #expect(bat.onAC == false)
-        #expect(bat.timeToEmptyMinutes == 4 * 60 + 12)
+        #expect(bat.timeRemainingMinutes == 4 * 60 + 12)
     }
 }
 ```
@@ -1322,7 +1333,7 @@ enum BatteryGatherer {
             percent: percent,
             onAC: onAC,
             charging: charging,
-            timeToEmptyMinutes: timeRemaining
+            timeRemainingMinutes: timeRemaining
         ))
     }
 }
@@ -1495,10 +1506,10 @@ struct PromptBuilderTests {
     @Test("triage prompt embeds JSON-encoded snapshot and identifies schema file")
     func triagePromptShape() throws {
         let snapshot = ShallowSnapshot(
-            cpu: .value(CPUShallow(loadAverage: [4.2, 3.8, 3.4], topProcesses: [])),
+            cpu: .value(CPUShallow(loadAverage: LoadAverage(oneMin: 4.2, fiveMin: 3.8, fifteenMin: 3.4), topProcesses: [])),
             wifi: .unavailable,
             disk: .value(DiskShallow(mounts: [])),
-            battery: .value(BatteryShallow(percent: 80, onAC: false, charging: false, timeToEmptyMinutes: 240)),
+            battery: .value(BatteryShallow(percent: 80, onAC: false, charging: false, timeRemainingMinutes: 240)),
             timestamp: Date(timeIntervalSince1970: 1_700_000_000)
         )
         let result = try PromptBuilder.triage(snapshot)
@@ -2114,7 +2125,7 @@ Append to `Sources/mh/SignalGatherer.swift` (inside the existing `struct SignalG
             // Implemented in Task 16
             fatalError("deep gather not yet implemented for \(domain)")
         }
-        return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, timestamp: Date())
+        return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, deepTimestamp: Date())
     }
 ```
 
@@ -2190,7 +2201,7 @@ Append to `Tests/mhTests/PromptBuilderTests.swift` (inside the existing suite):
     @Test("analysis prompt embeds deep snapshot and references analysis schema")
     func analysisPromptShape() throws {
         let shallow = ShallowSnapshot(
-            cpu: .value(CPUShallow(loadAverage: [4.2, 3.8, 3.4], topProcesses: [])),
+            cpu: .value(CPUShallow(loadAverage: LoadAverage(oneMin: 4.2, fiveMin: 3.8, fifteenMin: 3.4), topProcesses: [])),
             wifi: .unavailable, disk: .unavailable, battery: .unavailable,
             timestamp: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -2896,7 +2907,7 @@ Replace the existing `gatherDeep` method body in `Sources/mh/SignalGatherer.swif
                                             powerHistory: "", cycleCount: nil))
             }
         }
-        return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, timestamp: Date())
+        return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, deepTimestamp: Date())
     }
 ```
 
@@ -3326,7 +3337,7 @@ struct MH: AsyncParsableCommand {
         }
 
         let chat = ChatLoop(codex: codex, executor: FixExecutor(runner: runner),
-                             fixes: analysis.fixes, snapshotTimestamp: deepSnap.timestamp)
+                             fixes: analysis.fixes, snapshotTimestamp: deepSnap.deepTimestamp)
         await chat.run()
     }
 
