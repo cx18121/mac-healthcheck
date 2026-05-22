@@ -37,64 +37,88 @@ struct FixExecutor: Sendable {
         let isDangerous = fix.dangerous || fix.action.dangerousByDefault
         if isDangerous {
             let ok = await confirm(fix.action, fix.description)
-            guard ok else { throw FixExecutorError.userDeclined }
+            guard ok else {
+                logIntentOnly(fix, outcome: "userDeclined")
+                throw FixExecutorError.userDeclined
+            }
         }
 
-        let result: ProcessResult
-        switch fix.action {
-        case .restartWifi:
-            let params = try decode(RestartWifiParams.self, fix.paramsJson)
-            try validateInterface(params.interface)
-            _ = try await runner.run(
-                executableURL: Self.networksetupURL,
-                arguments: ["-setairportpower", params.interface, "off"],
-                stdin: nil, timeout: Self.execTimeout
-            )
-            result = try await runner.run(
-                executableURL: Self.networksetupURL,
-                arguments: ["-setairportpower", params.interface, "on"],
-                stdin: nil, timeout: Self.execTimeout
-            )
-
-        case .dockerStopAll:
-            // Step 1: get running container IDs
-            let ids = try await runner.run(
-                executableURL: Self.dockerURL,
-                arguments: ["ps", "-q"],
-                stdin: nil, timeout: Self.execTimeout)
-            let containerIds = ids.stdout.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
-            if containerIds.isEmpty {
-                result = ProcessResult(stdout: "no running containers", stderr: "", exitCode: 0)
-            } else {
-                result = try await runner.run(
-                    executableURL: Self.dockerURL,
-                    arguments: ["stop"] + containerIds,
+        do {
+            let result: ProcessResult
+            switch fix.action {
+            case .restartWifi:
+                let params = try decode(RestartWifiParams.self, fix.paramsJson)
+                try validateInterface(params.interface)
+                _ = try await runner.run(
+                    executableURL: Self.networksetupURL,
+                    arguments: ["-setairportpower", params.interface, "off"],
                     stdin: nil, timeout: Self.execTimeout)
+                result = try await runner.run(
+                    executableURL: Self.networksetupURL,
+                    arguments: ["-setairportpower", params.interface, "on"],
+                    stdin: nil, timeout: Self.execTimeout)
+
+            case .dockerStopAll:
+                let ids = try await runner.run(
+                    executableURL: Self.dockerURL,
+                    arguments: ["ps", "-q"],
+                    stdin: nil, timeout: Self.execTimeout)
+                let containerIds = ids.stdout.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+                if containerIds.isEmpty {
+                    result = ProcessResult(stdout: "no running containers", stderr: "", exitCode: 0)
+                } else {
+                    result = try await runner.run(
+                        executableURL: Self.dockerURL,
+                        arguments: ["stop"] + containerIds,
+                        stdin: nil, timeout: Self.execTimeout)
+                }
+
+            default:
+                let (url, args) = try buildCommand(for: fix)
+                result = try await runner.run(
+                    executableURL: url, arguments: args, stdin: nil, timeout: Self.execTimeout)
             }
 
-        default:
-            let (url, args) = try buildCommand(for: fix)
-            result = try await runner.run(
-                executableURL: url, arguments: args, stdin: nil, timeout: Self.execTimeout
-            )
-        }
+            try? AuditLogger.append([
+                "ts": ISO8601DateFormatter().string(from: Date()),
+                "fix_id": fix.id,
+                "action": fix.action.rawValue,
+                "params_json": fix.paramsJson,
+                "description": fix.description,
+                "outcome": "success",
+                "exit_code": Int(result.exitCode),
+                "stdout_preview": String(result.stdout.prefix(1024)),
+                "stderr_preview": String(result.stderr.prefix(1024))
+            ], to: AuditLogger.logFile)
 
+            return FixExecutionResult(
+                exitCode: result.exitCode,
+                stdoutPreview: String(result.stdout.prefix(1024)),
+                stderrPreview: String(result.stderr.prefix(1024))
+            )
+        } catch {
+            try? AuditLogger.append([
+                "ts": ISO8601DateFormatter().string(from: Date()),
+                "fix_id": fix.id,
+                "action": fix.action.rawValue,
+                "params_json": fix.paramsJson,
+                "description": fix.description,
+                "outcome": "error",
+                "error": "\(error)"
+            ], to: AuditLogger.logFile)
+            throw error
+        }
+    }
+
+    private func logIntentOnly(_ fix: ProposedFix, outcome: String) {
         try? AuditLogger.append([
             "ts": ISO8601DateFormatter().string(from: Date()),
             "fix_id": fix.id,
             "action": fix.action.rawValue,
             "params_json": fix.paramsJson,
             "description": fix.description,
-            "exit_code": Int(result.exitCode),
-            "stdout_preview": String(result.stdout.prefix(1024)),
-            "stderr_preview": String(result.stderr.prefix(1024))
+            "outcome": outcome
         ], to: AuditLogger.logFile)
-
-        return FixExecutionResult(
-            exitCode: result.exitCode,
-            stdoutPreview: String(result.stdout.prefix(1024)),
-            stderrPreview: String(result.stderr.prefix(1024))
-        )
     }
 
     // MARK: - Build commands

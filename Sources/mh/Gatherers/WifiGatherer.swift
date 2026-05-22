@@ -13,7 +13,8 @@ enum WifiGatherer {
         let (airport, network) = await (airportR, networkR)
 
         switch (airport, network) {
-        case (.unavailable, _), (_, .unavailable):
+        // Both unavailable → truly no wifi info
+        case (.unavailable, .unavailable):
             return .unavailable
         case (.timedOut, _), (_, .timedOut):
             return .timedOut
@@ -23,9 +24,30 @@ enum WifiGatherer {
             return .failed("airport: \(m)")
         case (_, .failed(let m)):
             return .failed("networksetup: \(m)")
+        // Airport unavailable (macOS 15+ deprecation) but networksetup gave us SSID — degrade gracefully
+        case (.unavailable, .value(let networkOut)):
+            return parseNetworksetupOnly(networksetup: networkOut, interface: interface)
+        // Networksetup unavailable but airport worked — shouldn't happen but handle it
+        case (.value(let airportOut), .unavailable):
+            return parse(airport: airportOut, networksetup: "", interface: interface)
         case (.value(let airportOut), .value(let networkOut)):
             return parse(airport: airportOut, networksetup: networkOut, interface: interface)
         }
+    }
+
+    private static func parseNetworksetupOnly(networksetup: String, interface: String) -> ProbeResult<WifiShallow> {
+        let ssidLine = networksetup.components(separatedBy: "\n")
+            .first(where: { $0.contains("Current Wi-Fi Network:") })
+        let ssid = ssidLine?
+            .replacingOccurrences(of: "Current Wi-Fi Network:", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        return .value(WifiShallow(
+            ssid: (ssid?.isEmpty == false) ? ssid : nil,
+            rssi: nil,
+            channel: nil,
+            linkRateMbps: nil,
+            interface: interface
+        ))
     }
 
     private static func runAirport(runner: ProcessRunner) async -> ProbeResult<String> {
@@ -113,7 +135,7 @@ enum WifiGatherer {
     private static func runSystemProfiler(runner: ProcessRunner) async -> ProbeResult<String> {
         do {
             let r = try await runner.run(
-                executableURL: systemProfilerURL, arguments: ["SPAirPortDataType"],
+                executableURL: systemProfilerURL, arguments: ["SPAirPortDataType", "-detailLevel", "basic"],
                 stdin: nil, timeout: deepTimeout)
             return r.exitCode == 0 ? .value(r.stdout) : .failed("exit \(r.exitCode)")
         } catch ProcessRunnerError.timedOut { return .timedOut }

@@ -31,20 +31,21 @@ struct ChatLoop {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             if trimmed.lowercased() == "exit" { return }
+            let consumedTurn: Bool
             if let idx = Self.parseRunCommand(trimmed) {
-                await handleRun(idx)
+                consumedTurn = await handleRun(idx)
             } else {
-                await handleFollowUp(trimmed)
+                consumedTurn = await handleFollowUp(trimmed)
             }
-            turns += 1
+            if consumedTurn { turns += 1 }
         }
         print("(turn budget of \(maxTurns) reached; restart `mh` for a fresh session)")
     }
 
-    private func handleRun(_ idx: Int) async {
+    private func handleRun(_ idx: Int) async -> Bool {
         guard idx >= 0, idx < fixes.count else {
             print("no fix #\(idx + 1); reports has \(fixes.count) fix(es)")
-            return
+            return false
         }
         let age = Date().timeIntervalSince(snapshotTimestamp)
         if age > Self.staleThresholdSeconds {
@@ -53,7 +54,7 @@ struct ChatLoop {
             let line = readLine() ?? ""
             guard line.lowercased().hasPrefix("y") else {
                 print("(skipped — re-run `mh` for a fresh snapshot)")
-                return
+                return false
             }
         }
         do {
@@ -62,18 +63,23 @@ struct ChatLoop {
             if !result.stderrPreview.isEmpty {
                 print("[stderr] \(result.stderrPreview)")
             }
+            return true
         } catch FixExecutorError.userDeclined {
             print("(declined)")
+            return false
         } catch FixExecutorError.invalidParam(let m) {
             print("invalid fix parameters: \(m)")
+            return false
         } catch FixExecutorError.revalidationFailed(let m) {
             print("fix is stale: \(m)")
+            return false
         } catch {
             print("fix failed: \(error)")
+            return true   // codex output drove this; we still count it
         }
     }
 
-    private func handleFollowUp(_ line: String) async {
+    private func handleFollowUp(_ line: String) async -> Bool {
         struct FollowUpResponse: Codable { let report: String; let fixes: [ProposedFix] }
         do {
             let resp: FollowUpResponse = try await codex.resume(
@@ -83,6 +89,7 @@ struct ChatLoop {
         } catch {
             print("(codex follow-up failed: \(error))")
         }
+        return true   // Codex call was made, regardless of outcome
     }
 
     /// "run 2" → 1 (zero-indexed). 1-indexed in user input.
