@@ -3,4 +3,3 @@
 *.xcodeproj/
 DerivedData/
 .DS_Store
-~/.local/state/mh/
