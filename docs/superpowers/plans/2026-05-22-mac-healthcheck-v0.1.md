@@ -6,7 +6,9 @@
 
 **Architecture:** Single Swift Package Manager executable. Two-mode gather (shallow cross-cut → Codex triage → deep gather on dominant domain → Codex analysis). `codex exec --json --output-schema` subprocess for structured LLM output. Closed-enum `FixAction` allowlist with revalidation + audit log for Tier-1 auto-fix. Foundation + swift-argument-parser only. Reference design: `docs/superpowers/specs/2026-05-21-mac-healthcheck-v0.1-design.md`.
 
-**Tech Stack:** Swift 6.3, Swift Package Manager, Foundation, `swift-argument-parser`, Swift Testing (`@Test` macros), Codex CLI 0.132+ (external runtime dependency).
+**Tech Stack:** Swift 6.3 compiler (`/usr/bin/swift` on the developer's machine), `swift-tools-version: 6.0` in Package.swift (the minimum Swift toolchain that can build the manifest — chosen low to maximize portability since no 6.1+/6.3+ manifest features are needed), Swift Package Manager, Foundation, `swift-argument-parser`, Swift Testing (`@Test` macros), Codex CLI 0.132+ (external runtime dependency).
+
+`Package.resolved` is committed by design — this is a single-binary personal-utility tool where reproducible dependency versions matter; for a library, it would be gitignored instead.
 
 ---
 
