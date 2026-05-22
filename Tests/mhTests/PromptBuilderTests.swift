@@ -24,4 +24,26 @@ struct PromptBuilderTests {
         #expect(result.prompt.contains("\"wifi\""))
         #expect(result.prompt.contains("unavailable"))
     }
+
+    @Test("analysis prompt embeds deep snapshot and references analysis schema")
+    func analysisPromptShape() throws {
+        let shallow = ShallowSnapshot(
+            cpu: .value(CPUShallow(loadAverage: LoadAverage(oneMin: 4.2, fiveMin: 3.8, fifteenMin: 3.4), topProcesses: [])),
+            wifi: .unavailable, disk: .unavailable, battery: .unavailable,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let deepSnap = DeepSnapshot(
+            domain: .cpu,
+            shallow: shallow,
+            deep: .cpu(CPUDeep(fullTopOutput: "top output", thermalPressure: "ok", uptimeSeconds: 3600)),
+            deepTimestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let result = try PromptBuilder.analysis(deepSnap)
+        let schemaData = try Data(contentsOf: result.schemaFile)
+        let schemaJson = try JSONSerialization.jsonObject(with: schemaData) as! [String: Any]
+        #expect((schemaJson["required"] as? [String])?.contains("fixes") == true)
+        #expect(result.prompt.contains("CPU"))
+        #expect(result.prompt.contains("FixAction allowlist"))
+        #expect(result.prompt.contains("flush_dns"))
+    }
 }
