@@ -39,7 +39,7 @@ mac-healthcheck/
 │   ├── ChatLoop.swift                              # REPL + run-N parsing
 │   ├── DoctorCommand.swift                         # `mh doctor` subcommand
 │   ├── Logging.swift                               # audit + error log helpers
-│   ├── main.swift                                  # @main + MH struct (root command)
+│   ├── MH.swift                                    # @main + MH struct (root command — named MH.swift, not main.swift, because @main + main.swift are mutually exclusive in Swift 6)
 │   └── Resources/
 │       ├── triage_schema.json                      # bundled at build time
 │       └── analysis_schema.json                    # bundled at build time
@@ -1814,7 +1814,7 @@ git commit -m "feat(codex): CodexClient.openSession with JSONL parsing + thread_
 
 **Files:**
 - Create: `Sources/mh/DoctorCommand.swift`
-- Modify: `Sources/mh/main.swift`
+- Modify: `Sources/mh/MH.swift`  (the root command file; Task 1 renamed from `main.swift` due to Swift 6 @main constraint)
 
 Gives Charlie a debug surface before the full pipeline exists. Checks: Codex installed, Codex authenticated, top/df/pmset/networksetup/airport present.
 
@@ -1905,7 +1905,7 @@ struct Doctor: AsyncParsableCommand {
 
 - [ ] **Step 2: Wire `doctor` into the root command**
 
-Replace `Sources/mh/main.swift`:
+Replace `Sources/mh/MH.swift`:
 
 ```swift
 import ArgumentParser
@@ -1932,7 +1932,7 @@ Expected: prints checkmarks for /usr/bin/top, /bin/df, /usr/bin/pmset, /usr/sbin
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/mh/DoctorCommand.swift Sources/mh/main.swift
+git add Sources/mh/DoctorCommand.swift Sources/mh/MH.swift
 git commit -m "feat(cli): mh doctor subcommand for env preflight"
 ```
 
@@ -3101,7 +3101,7 @@ git commit -m "feat(fix): quit_app, kill_pid, cache clears, docker_stop_all + va
 
 **Files:**
 - Create: `Sources/mh/ChatLoop.swift`
-- Modify: `Sources/mh/main.swift`
+- Modify: `Sources/mh/MH.swift`  (Task 1 renamed from `main.swift`)
 - Create: `Tests/mhTests/ChatLoopTests.swift`
 
 - [ ] **Step 1: Write the failing test**
@@ -3236,9 +3236,9 @@ struct ChatLoop {
 }
 ```
 
-- [ ] **Step 4: Wire the full pipeline into `main.swift`**
+- [ ] **Step 4: Wire the full pipeline into `MH.swift`**
 
-Replace `Sources/mh/main.swift`:
+Replace `Sources/mh/MH.swift`:
 
 ```swift
 import ArgumentParser
@@ -3364,7 +3364,7 @@ Expected: builds without errors.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/mh/ChatLoop.swift Sources/mh/main.swift Tests/mhTests/ChatLoopTests.swift
+git add Sources/mh/ChatLoop.swift Sources/mh/MH.swift Tests/mhTests/ChatLoopTests.swift
 git commit -m "feat(cli): ChatLoop REPL + full pipeline wired in main"
 ```
 
