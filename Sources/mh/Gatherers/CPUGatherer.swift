@@ -2,7 +2,8 @@ import Foundation
 
 enum CPUGatherer {
 
-    static let shallowTimeout: TimeInterval = 0.5
+    // top -l 1 has a mandatory sample interval (~1s default); 3.0 gives headroom on a loaded machine.
+    static let shallowTimeout: TimeInterval = 3.0
     static let topURL = URL(fileURLWithPath: "/usr/bin/top")
 
     static func shallow(runner: ProcessRunner) async -> ProbeResult<CPUShallow> {
@@ -25,7 +26,7 @@ enum CPUGatherer {
         return parse(top: result.stdout)
     }
 
-    static func parse(top: String) -> ProbeResult<CPUShallow> {
+    private static func parse(top: String) -> ProbeResult<CPUShallow> {
         let lines = top.components(separatedBy: "\n")
         guard let loadLine = lines.first(where: { $0.hasPrefix("Load Avg:") }) else {
             return .failed("could not find 'Load Avg' line")
@@ -41,12 +42,15 @@ enum CPUGatherer {
         }
 
         // Find the PID header line, then parse the following process rows
-        guard let headerIdx = lines.firstIndex(where: { $0.hasPrefix("PID") }) else {
+        guard let headerIdx = lines.firstIndex(where: { $0.hasPrefix("PID ") || $0.hasPrefix("PID\t") }) else {
             return .failed("could not find PID header line")
         }
         let procRows = lines.dropFirst(headerIdx + 1)
             .prefix(5)
             .compactMap(parseTopRow(_:))
+        guard !procRows.isEmpty else {
+            return .failed("PID header found but no process rows parsed")
+        }
 
         let loadAverage = LoadAverage(oneMin: loadAvg[0], fiveMin: loadAvg[1], fifteenMin: loadAvg[2])
         return .value(CPUShallow(loadAverage: loadAverage, topProcesses: Array(procRows)))

@@ -59,4 +59,13 @@ struct CPUGathererShallowTests {
             Issue.record("expected .failed, got \(result)"); return
         }
     }
+
+    @Test("returns .failed when binary spawn fails")
+    func handlesSpawnFailed() async throws {
+        // FakeProcessRunner with no scripted entries throws .spawnFailed for any call
+        let result = await CPUGatherer.shallow(runner: FakeProcessRunner(scripted: [:]))
+        guard case .failed = result else {
+            Issue.record("expected .failed, got \(result)"); return
+        }
+    }
 }
