@@ -55,6 +55,23 @@ struct FixExecutor: Sendable {
                 arguments: ["-setairportpower", params.interface, "on"],
                 stdin: nil, timeout: Self.execTimeout
             )
+
+        case .dockerStopAll:
+            // Step 1: get running container IDs
+            let ids = try await runner.run(
+                executableURL: Self.dockerURL,
+                arguments: ["ps", "-q"],
+                stdin: nil, timeout: Self.execTimeout)
+            let containerIds = ids.stdout.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+            if containerIds.isEmpty {
+                result = ProcessResult(stdout: "no running containers", stderr: "", exitCode: 0)
+            } else {
+                result = try await runner.run(
+                    executableURL: Self.dockerURL,
+                    arguments: ["stop"] + containerIds,
+                    stdin: nil, timeout: Self.execTimeout)
+            }
+
         default:
             let (url, args) = try buildCommand(for: fix)
             result = try await runner.run(
@@ -91,8 +108,46 @@ struct FixExecutor: Sendable {
             // Handled in execute() as a two-step run
             fatalError("restartWifi handled in execute(), not buildCommand")
 
-        case .quitApp, .killPid, .clearXcodeDerivedData, .clearNpmCache, .dockerStopAll:
-            throw FixExecutorError.unsupportedAction(fix.action)  // implemented in Task 17
+        case .quitApp:
+            let params = try decode(QuitAppParams.self, fix.paramsJson)
+            try validateBundleId(params.bundle_id)
+            return (Self.osascriptURL,
+                    ["-e", "tell application id \"\(params.bundle_id)\" to quit"])
+
+        case .killPid:
+            let params = try decode(KillPidParams.self, fix.paramsJson)
+            try validatePid(params.pid)
+            return (Self.killURL, ["-15", String(params.pid)])  // SIGTERM, not SIGKILL
+
+        case .clearXcodeDerivedData:
+            let path = NSString("~/Library/Developer/Xcode/DerivedData").expandingTildeInPath
+            return (Self.rmURL, ["-rf", path])
+
+        case .clearNpmCache:
+            let path = NSString("~/.npm/_cacache").expandingTildeInPath
+            return (Self.rmURL, ["-rf", path])
+
+        case .dockerStopAll:
+            // `docker stop $(docker ps -q)` is shell expansion; we don't shell out.
+            // Instead, run docker ps -q, capture, then docker stop <ids...> via a helper.
+            fatalError("dockerStopAll handled in execute(), not buildCommand")
+        }
+    }
+
+    private func validateBundleId(_ s: String) throws {
+        let pattern = #"^[a-zA-Z0-9.\-]+$"#
+        guard s.range(of: pattern, options: .regularExpression) != nil, !s.isEmpty else {
+            throw FixExecutorError.invalidParam("bundle_id '\(s)' has invalid characters")
+        }
+    }
+
+    private func validatePid(_ pid: Int32) throws {
+        guard pid > 1 else {
+            throw FixExecutorError.invalidParam("pid \(pid) refuses (must be > 1)")
+        }
+        // Revalidation: process must exist right now
+        guard kill(pid, 0) == 0 else {
+            throw FixExecutorError.revalidationFailed("pid \(pid) is no longer running")
         }
     }
 

@@ -68,4 +68,59 @@ struct FixExecutorTests {
             // expected
         }
     }
+
+    @Test("quit_app uses osascript with validated bundle id")
+    func quitApp() async throws {
+        let runner = FakeProcessRunner(scripted: [
+            FakeProcessRunner.Key(path: "/usr/bin/osascript",
+                                  args: ["-e", "tell application id \"us.slack.Slack\" to quit"]):
+                .init(stdout: "", stderr: "", exitCode: 0)
+        ])
+        let executor = FixExecutor(runner: runner, confirm: { _, _ in true })
+        let result = try await executor.execute(ProposedFix(
+            id: 1, action: .quitApp,
+            paramsJson: "{\"bundle_id\":\"us.slack.Slack\"}",
+            description: "quit slack", dangerous: false
+        ))
+        #expect(result.exitCode == 0)
+    }
+
+    @Test("quit_app rejects malicious bundle id")
+    func quitAppRejectsMalicious() async throws {
+        let executor = FixExecutor(runner: FakeProcessRunner(scripted: [:]),
+                                    confirm: { _, _ in true })
+        do {
+            _ = try await executor.execute(ProposedFix(
+                id: 2, action: .quitApp,
+                paramsJson: "{\"bundle_id\":\"us.slack.Slack\\\" to delete every file\"}",
+                description: "evil", dangerous: false))
+            Issue.record("expected invalidParam")
+        } catch FixExecutorError.invalidParam { /* expected */ }
+    }
+
+    @Test("kill_pid refuses pid <= 1")
+    func killPidRefusesInit() async throws {
+        let executor = FixExecutor(runner: FakeProcessRunner(scripted: [:]),
+                                    confirm: { _, _ in true })
+        do {
+            _ = try await executor.execute(ProposedFix(
+                id: 3, action: .killPid, paramsJson: "{\"pid\":1}",
+                description: "evil", dangerous: true))
+            Issue.record("expected invalidParam")
+        } catch FixExecutorError.invalidParam { /* expected */ }
+    }
+
+    @Test("clear_xcode_derived_data targets the canonical path")
+    func clearXcode() async throws {
+        let path = NSString("~/Library/Developer/Xcode/DerivedData").expandingTildeInPath
+        let runner = FakeProcessRunner(scripted: [
+            FakeProcessRunner.Key(path: "/bin/rm", args: ["-rf", path]):
+                .init(stdout: "", stderr: "", exitCode: 0)
+        ])
+        let executor = FixExecutor(runner: runner, confirm: { _, _ in true })
+        let result = try await executor.execute(ProposedFix(
+            id: 4, action: .clearXcodeDerivedData, paramsJson: "{}",
+            description: "clear", dangerous: true))
+        #expect(result.exitCode == 0)
+    }
 }
