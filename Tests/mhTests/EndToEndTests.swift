@@ -20,9 +20,6 @@ struct EndToEndTests {
             FakeProcessRunner.Key(path: "/usr/bin/top",
                                   args: ["-l", "1", "-n", "5", "-stats", "pid,cpu,mem,command"]):
                 .init(stdout: read("top_runaway_slack", "txt"), stderr: "", exitCode: 0),
-            FakeProcessRunner.Key(path: "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
-                                  args: ["-I"]):
-                .init(stdout: read("airport_I_normal", "txt"), stderr: "", exitCode: 0),
             FakeProcessRunner.Key(path: "/usr/sbin/networksetup",
                                   args: ["-getairportnetwork", "en0"]):
                 .init(stdout: read("networksetup_getairportnetwork", "txt"), stderr: "", exitCode: 0),
@@ -64,9 +61,6 @@ struct EndToEndTests {
             FakeProcessRunner.Key(path: "/usr/bin/top",
                                   args: ["-l", "1", "-n", "5", "-stats", "pid,cpu,mem,command"]):
                 .init(stdout: read("top_runaway_slack", "txt"), stderr: "", exitCode: 0),
-            FakeProcessRunner.Key(path: "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
-                                  args: ["-I"]):
-                .init(stdout: read("airport_I_normal", "txt"), stderr: "", exitCode: 0),
             FakeProcessRunner.Key(path: "/usr/sbin/networksetup",
                                   args: ["-getairportnetwork", "en0"]):
                 .init(stdout: read("networksetup_getairportnetwork", "txt"), stderr: "", exitCode: 0),

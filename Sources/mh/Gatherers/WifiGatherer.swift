@@ -1,66 +1,62 @@
+@preconcurrency import CoreWLAN
 import Foundation
+
+struct CoreWLANSnapshot: Sendable {
+    let ssid: String?
+    let rssi: Int?
+    let channel: Int?
+    let linkRateMbps: Double?
+}
 
 enum WifiGatherer {
 
-    static let shallowTimeout: TimeInterval = 1.0  // airport + networksetup are typically fast (<300ms); 1s headroom
-    static let airportURL = URL(fileURLWithPath:
-        "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport")
+    typealias CoreWLANReader = @Sendable (String) -> CoreWLANSnapshot
+
+    static let shallowTimeout: TimeInterval = 1.0  // networksetup is typically fast (<300ms); 1s headroom
     static let networksetupURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
 
-    static func shallow(runner: ProcessRunner, interface: String = "en0") async -> ProbeResult<WifiShallow> {
-        async let airportR = runAirport(runner: runner)
-        async let networkR = runNetworksetup(runner: runner, interface: interface)
-        let (airport, network) = await (airportR, networkR)
-
-        switch (airport, network) {
-        // Both unavailable → truly no wifi info
-        case (.unavailable, .unavailable):
-            return .unavailable
-        case (.timedOut, _), (_, .timedOut):
-            return .timedOut
-        case (.failed(let a), .failed(let b)):
-            return .failed("airport: \(a); networksetup: \(b)")
-        case (.failed(let m), _):
-            return .failed("airport: \(m)")
-        case (_, .failed(let m)):
-            return .failed("networksetup: \(m)")
-        // Airport unavailable (macOS 15+ deprecation) but networksetup gave us SSID — degrade gracefully
-        case (.unavailable, .value(let networkOut)):
-            return parseNetworksetupOnly(networksetup: networkOut, interface: interface)
-        // Networksetup unavailable but airport worked — shouldn't happen but handle it
-        case (.value(let airportOut), .unavailable):
-            return parse(airport: airportOut, networksetup: "", interface: interface)
-        case (.value(let airportOut), .value(let networkOut)):
-            return parse(airport: airportOut, networksetup: networkOut, interface: interface)
+    /// Default reader pulls live values from the real CWWiFiClient. Tests inject their own.
+    static let realCoreWLANReader: CoreWLANReader = { interface in
+        let client = CWWiFiClient.shared()
+        guard let iface = client.interface(withName: interface) else {
+            return CoreWLANSnapshot(ssid: nil, rssi: nil, channel: nil, linkRateMbps: nil)
         }
+        let rssi = iface.rssiValue()
+        return CoreWLANSnapshot(
+            ssid: iface.ssid(),
+            rssi: rssi == 0 ? nil : rssi,
+            channel: iface.wlanChannel()?.channelNumber,
+            linkRateMbps: iface.transmitRate() > 0 ? iface.transmitRate() : nil
+        )
     }
 
-    private static func parseNetworksetupOnly(networksetup: String, interface: String) -> ProbeResult<WifiShallow> {
-        let ssidLine = networksetup.components(separatedBy: "\n")
-            .first(where: { $0.contains("Current Wi-Fi Network:") })
-        let ssid = ssidLine?
-            .replacingOccurrences(of: "Current Wi-Fi Network:", with: "")
-            .trimmingCharacters(in: .whitespaces)
-        return .value(WifiShallow(
-            ssid: (ssid?.isEmpty == false) ? ssid : nil,
-            rssi: nil,
-            channel: nil,
-            linkRateMbps: nil,
-            interface: interface
-        ))
-    }
-
-    private static func runAirport(runner: ProcessRunner) async -> ProbeResult<String> {
-        do {
-            let r = try await runner.run(
-                executableURL: airportURL, arguments: ["-I"],
-                stdin: nil, timeout: shallowTimeout
-            )
-            if r.exitCode != 0 { return .failed("exit \(r.exitCode)") }
-            return .value(r.stdout)
-        } catch ProcessRunnerError.timedOut { return .timedOut }
-        catch ProcessRunnerError.spawnFailed { return .unavailable }
-        catch { return .failed("\(error)") }
+    static func shallow(
+        runner: ProcessRunner,
+        interface: String = "en0",
+        coreWLANReader: CoreWLANReader? = nil
+    ) async -> ProbeResult<WifiShallow> {
+        let cw = (coreWLANReader ?? realCoreWLANReader)(interface)
+        let networkR = await runNetworksetup(runner: runner, interface: interface)
+        switch networkR {
+        case .unavailable, .timedOut:
+            // Even if networksetup is unavailable, return what CoreWLAN gave us (might be all nils).
+            return .value(WifiShallow(
+                ssid: cw.ssid, rssi: cw.rssi, channel: cw.channel,
+                linkRateMbps: cw.linkRateMbps, interface: interface
+            ))
+        case .failed(let m):
+            return .failed("networksetup: \(m)")
+        case .value(let networkOut):
+            // Prefer CoreWLAN's SSID (more reliable) but fall back to networksetup's parse.
+            let nsSSID = parseNetworksetupSSID(networkOut)
+            return .value(WifiShallow(
+                ssid: cw.ssid ?? nsSSID,
+                rssi: cw.rssi,
+                channel: cw.channel,
+                linkRateMbps: cw.linkRateMbps,
+                interface: interface
+            ))
+        }
     }
 
     private static func runNetworksetup(runner: ProcessRunner, interface: String) async -> ProbeResult<String> {
@@ -77,34 +73,13 @@ enum WifiGatherer {
         catch { return .failed("\(error)") }
     }
 
-    private static func parse(airport: String, networksetup: String, interface: String) -> ProbeResult<WifiShallow> {
-        // airport -I gives RSSI, channel, link rate
-        let map = airport.components(separatedBy: "\n").reduce(into: [String: String]()) { dict, line in
-            let pair = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            if pair.count == 2 { dict[pair[0]] = pair[1] }
-        }
-        guard !map.isEmpty else {
-            return .failed("airport -I output unrecognised (no parseable key:value lines)")
-        }
-        let rssi = map["agrCtlRSSI"].flatMap(Int.init)
-        let linkRate = map["lastTxRate"].flatMap(Double.init)
-        // "channel: 36,80" → primary channel = 36
-        let channel = map["channel"]?.split(separator: ",").first.flatMap { Int($0) }
-
-        // networksetup: "Current Wi-Fi Network: HomeNetwork" (or "You are not associated...")
-        let ssidLine = networksetup.components(separatedBy: "\n")
+    private static func parseNetworksetupSSID(_ output: String) -> String? {
+        let ssidLine = output.components(separatedBy: "\n")
             .first(where: { $0.contains("Current Wi-Fi Network:") })
         let ssid = ssidLine?
             .replacingOccurrences(of: "Current Wi-Fi Network:", with: "")
             .trimmingCharacters(in: .whitespaces)
-
-        return .value(WifiShallow(
-            ssid: (ssid?.isEmpty == false) ? ssid : nil,
-            rssi: rssi,
-            channel: channel,
-            linkRateMbps: linkRate,
-            interface: interface
-        ))
+        return (ssid?.isEmpty == false) ? ssid : nil
     }
 
     static let deepTimeout: TimeInterval = 3.0

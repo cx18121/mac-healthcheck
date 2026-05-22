@@ -1,4 +1,5 @@
 import ArgumentParser
+@preconcurrency import CoreWLAN
 import Foundation
 
 struct Doctor: AsyncParsableCommand {
@@ -57,12 +58,12 @@ struct Doctor: AsyncParsableCommand {
             }
         }
 
-        // Optional: airport (deprecated but used)
-        let airportPath = "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport"
-        if FileManager.default.isExecutableFile(atPath: airportPath) {
-            print("✓ airport at \(airportPath)")
+        // Check CoreWLAN availability (replaces airport for macOS 14+)
+        let cwClient = CWWiFiClient.shared()
+        if let _ = cwClient.interface() {
+            print("✓ CoreWLAN (default interface available)")
         } else {
-            print("! airport not found at \(airportPath) — WiFi probe will degrade to networksetup-only")
+            print("! CoreWLAN: no wifi interface detected — WiFi probes will return empty data")
         }
 
         if !allGreen {

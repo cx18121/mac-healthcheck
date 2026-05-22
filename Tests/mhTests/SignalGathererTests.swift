@@ -14,10 +14,6 @@ struct SignalGathererTests {
             FakeProcessRunner.Key(path: "/usr/bin/top",
                                   args: ["-l", "1", "-n", "5", "-stats", "pid,cpu,mem,command"]):
                 .init(stdout: read("top_runaway_slack"), stderr: "", exitCode: 0),
-            FakeProcessRunner.Key(
-                path: "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
-                args: ["-I"]):
-                .init(stdout: read("airport_I_normal"), stderr: "", exitCode: 0),
             FakeProcessRunner.Key(path: "/usr/sbin/networksetup",
                                   args: ["-getairportnetwork", "en0"]):
                 .init(stdout: read("networksetup_getairportnetwork"), stderr: "", exitCode: 0),
@@ -33,7 +29,7 @@ struct SignalGathererTests {
         let gatherer = SignalGatherer(runner: fixturedRunner())
         let snapshot = await gatherer.gatherShallow()
         #expect(snapshot.cpu.isOk)
-        #expect(snapshot.wifi.isOk)
+        // wifi is environment-dependent (CoreWLAN), tested in WifiGathererTests
         #expect(snapshot.disk.isOk)
         #expect(snapshot.battery.isOk)
     }
