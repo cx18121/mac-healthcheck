@@ -72,4 +72,86 @@ enum CPUGatherer {
             .trimmingCharacters(in: .whitespaces)
         return TopProcess(pid: pid, cpuPercent: cpu, memoryMB: mem, command: rest)
     }
+
+    static let deepTimeout: TimeInterval = 3.0
+    static let pmsetURL = URL(fileURLWithPath: "/usr/bin/pmset")
+    static let uptimeURL = URL(fileURLWithPath: "/usr/bin/uptime")
+
+    static func deep(runner: ProcessRunner) async -> ProbeResult<CPUDeep> {
+        async let topR = runDeepTop(runner: runner)
+        async let thermR = runThermal(runner: runner)
+        async let upR = runUptime(runner: runner)
+        let (top, therm, uptime) = await (topR, thermR, upR)
+
+        // Allow individual probes to degrade — only fail the whole thing if top fails.
+        guard case .value(let topOut) = top else {
+            if case .timedOut = top { return .timedOut }
+            return .failed("deep top failed")
+        }
+        let thermOut: String
+        if case .value(let t) = therm { thermOut = t } else { thermOut = "(unavailable)" }
+        let upSeconds: Int
+        if case .value(let u) = uptime { upSeconds = parseUptime(u) } else { upSeconds = 0 }
+
+        return .value(CPUDeep(
+            fullTopOutput: String(topOut.prefix(4096)),
+            thermalPressure: String(thermOut.prefix(2048)),
+            uptimeSeconds: upSeconds
+        ))
+    }
+
+    private static func runDeepTop(runner: ProcessRunner) async -> ProbeResult<String> {
+        do {
+            let r = try await runner.run(
+                executableURL: topURL,
+                arguments: ["-l", "1", "-n", "20", "-stats", "pid,cpu,mem,command"],
+                stdin: nil, timeout: deepTimeout)
+            if r.exitCode != 0 { return .failed("top exit \(r.exitCode)") }
+            return .value(r.stdout)
+        } catch ProcessRunnerError.timedOut { return .timedOut }
+        catch { return .failed("\(error)") }
+    }
+
+    private static func runThermal(runner: ProcessRunner) async -> ProbeResult<String> {
+        do {
+            let r = try await runner.run(
+                executableURL: pmsetURL, arguments: ["-g", "therm"],
+                stdin: nil, timeout: deepTimeout)
+            if r.exitCode != 0 { return .failed("pmset exit \(r.exitCode)") }
+            return .value(r.stdout)
+        } catch ProcessRunnerError.timedOut { return .timedOut }
+        catch ProcessRunnerError.spawnFailed { return .unavailable }
+        catch { return .failed("\(error)") }
+    }
+
+    private static func runUptime(runner: ProcessRunner) async -> ProbeResult<String> {
+        do {
+            let r = try await runner.run(
+                executableURL: uptimeURL, arguments: [],
+                stdin: nil, timeout: deepTimeout)
+            if r.exitCode != 0 { return .failed("uptime exit \(r.exitCode)") }
+            return .value(r.stdout)
+        } catch ProcessRunnerError.timedOut { return .timedOut }
+        catch { return .failed("\(error)") }
+    }
+
+    /// "19:23 up 4 days, 12:34, ..." → 4*86400 + 12*3600 + 34*60
+    static func parseUptime(_ line: String) -> Int {
+        var seconds = 0
+        if let m = line.range(of: #"(\d+) days?"#, options: .regularExpression) {
+            let s = line[m].split(separator: " ").first.flatMap { Int($0) } ?? 0
+            seconds += s * 86400
+        }
+        // "up 12:34" or "up 12 hrs"
+        if let m = line.range(of: #"\b(\d+):(\d+)\b"#, options: .regularExpression) {
+            let parts = String(line[m]).split(separator: ":")
+            if parts.count == 2, let h = Int(parts[0]), let mm = Int(parts[1]) {
+                seconds += h * 3600 + mm * 60
+            }
+        } else if let m = line.range(of: #"(\d+) hrs?"#, options: .regularExpression) {
+            let s = line[m].split(separator: " ").first.flatMap { Int($0) } ?? 0
+            seconds += s * 3600
+        }
+        return seconds
+    }
 }

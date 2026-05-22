@@ -21,4 +21,22 @@ struct SignalGatherer: Sendable {
             timestamp: Date()
         )
     }
+
+    func gatherDeep(_ domain: Domain, shallow: ShallowSnapshot) async -> DeepSnapshot {
+        let deep: DeepData
+        switch domain {
+        case .cpu:
+            let r = await CPUGatherer.deep(runner: runner)
+            if case .value(let d) = r {
+                deep = .cpu(d)
+            } else {
+                deep = .cpu(CPUDeep(fullTopOutput: "(probe failed: \(r))",
+                                    thermalPressure: "", uptimeSeconds: 0))
+            }
+        case .wifi, .disk, .battery:
+            // Implemented in Task 16
+            fatalError("deep gather not yet implemented for \(domain)")
+        }
+        return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, deepTimestamp: Date())
+    }
 }
