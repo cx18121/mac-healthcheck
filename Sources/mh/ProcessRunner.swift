@@ -50,8 +50,13 @@ struct FoundationProcessRunner: ProcessRunner {
             } catch {
                 throw ProcessRunnerError.spawnFailed(String(describing: error))
             }
-            try stdinPipe.fileHandleForWriting.write(contentsOf: Data(stdin.utf8))
-            try stdinPipe.fileHandleForWriting.close()
+            do {
+                // FIXME: this blocks the cooperative thread if stdin > pipe buffer (~64KB on macOS). Fine for ≤20KB Codex prompts; revisit if larger payloads needed.
+                try stdinPipe.fileHandleForWriting.write(contentsOf: Data(stdin.utf8))
+                try stdinPipe.fileHandleForWriting.close()
+            } catch {
+                throw ProcessRunnerError.spawnFailed("stdin write failed: \(error)")
+            }
         } else {
             do {
                 try process.run()
@@ -82,6 +87,7 @@ struct FoundationProcessRunner: ProcessRunner {
         if timedOut {
             if process.isRunning {
                 process.terminate()
+                process.waitUntilExit()    // ensure SIGTERM is acknowledged; SIGKILL escalation is not attempted in v0.1
             }
             // Drain pipes to avoid leaking file descriptors; ignore content.
             _ = try? stdoutPipe.fileHandleForReading.readToEnd()
@@ -91,6 +97,7 @@ struct FoundationProcessRunner: ProcessRunner {
 
         let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
         let errData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+        // String(decoding:as:) substitutes U+FFFD for invalid UTF-8 (never returns nil); callers must tolerate replacement chars in tool output.
         return ProcessResult(
             stdout: String(decoding: outData, as: UTF8.self),
             stderr: String(decoding: errData, as: UTF8.self),
@@ -105,23 +112,18 @@ struct FakeProcessRunner: ProcessRunner {
         let path: String
         let args: [String]
     }
-    struct Scripted: Sendable {
-        let stdout: String
-        let stderr: String
-        let exitCode: Int32
-    }
-    let scripted: [Key: Scripted]
+    let scripted: [Key: ProcessResult]
 
     func run(executableURL: URL,
              arguments: [String],
              stdin: String?,
              timeout: TimeInterval) async throws -> ProcessResult {
         let key = Key(path: executableURL.path, args: arguments)
-        guard let s = scripted[key] else {
+        guard let result = scripted[key] else {
             throw ProcessRunnerError.spawnFailed(
                 "no scripted result for \(key.path) \(key.args.joined(separator: " "))"
             )
         }
-        return ProcessResult(stdout: s.stdout, stderr: s.stderr, exitCode: s.exitCode)
+        return result
     }
 }
