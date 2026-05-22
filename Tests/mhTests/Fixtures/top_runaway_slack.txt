@@ -1,0 +1,17 @@
+Processes: 412 total, 4 running, 408 sleeping, 2204 threads
+2026/05/21 22:14:08
+Load Avg: 4.21, 3.85, 3.40
+CPU usage: 32.55% user, 12.10% sys, 55.34% idle
+SharedLibs: 412M resident, 89M data, 32M linkedit.
+MemRegions: 245678 total, 12G resident, 412M private, 4G shared.
+PhysMem: 24G used (4G wired, 8G compressor), 8G unused.
+VM: 234T vsize, 4256M framework vsize, 0(0) swapins, 0(0) swapouts.
+Networks: packets: 1234567/2.3G in, 765432/1.8G out.
+Disks: 12345678/567G read, 7654321/345G written.
+
+PID    %CPU %MEM   COMMAND
+12345  380.0 12.5   Slack Helper (Renderer)
+67890   45.2  3.1   WindowServer
+11111   12.0  2.8   kernel_task
+22222    8.3  1.5   Google Chrome Helper
+33333    5.1  0.9   mds_stores
