@@ -6,7 +6,7 @@ struct MH: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "mh",
         abstract: "macOS diagnostic CLI with LLM synthesis",
-        subcommands: [Doctor.self]
+        subcommands: [Doctor.self, WifiFocus.self, CPUFocus.self, DiskFocus.self, BatteryFocus.self]
     )
 
     func run() async throws {
