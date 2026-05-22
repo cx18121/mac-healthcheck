@@ -58,4 +58,37 @@ enum DiskGatherer {
         else if s.hasSuffix("Ki") { multiplier = 1.0 / (1024.0 * 1024.0); s.removeLast(2) }
         return (Double(s) ?? 0.0) * multiplier
     }
+
+    static let deepTimeout: TimeInterval = 3.0
+    static let duURL = URL(fileURLWithPath: "/usr/bin/du")
+
+    static let knownCachePaths: [String] = [
+        NSString("~/Library/Developer/Xcode/DerivedData").expandingTildeInPath,
+        NSString("~/.npm/_cacache").expandingTildeInPath,
+        NSString("~/Library/Caches").expandingTildeInPath,
+        NSString("~/Downloads").expandingTildeInPath
+    ]
+
+    static func deep(runner: ProcessRunner) async -> ProbeResult<DiskDeep> {
+        var results: [DiskUsage] = []
+        for path in knownCachePaths where FileManager.default.fileExists(atPath: path) {
+            if case .value(let gb) = await duOne(runner: runner, path: path) {
+                results.append(DiskUsage(path: path, sizeGB: gb))
+            }
+        }
+        return .value(DiskDeep(topDirectories: results, purgeableGB: nil))
+    }
+
+    private static func duOne(runner: ProcessRunner, path: String) async -> ProbeResult<Double> {
+        do {
+            let r = try await runner.run(
+                executableURL: duURL, arguments: ["-sk", path],
+                stdin: nil, timeout: deepTimeout)
+            if r.exitCode != 0 { return .failed("du exit \(r.exitCode)") }
+            // "1234567\t/path"
+            let first = r.stdout.split(separator: "\t").first.flatMap { Int($0) } ?? 0
+            return .value(Double(first) / (1024.0 * 1024.0))  // KB → GB
+        } catch ProcessRunnerError.timedOut { return .timedOut }
+        catch { return .failed("\(error)") }
+    }
 }

@@ -1,0 +1,23 @@
+Wi-Fi:
+
+      Software Versions:
+          CoreWLAN: 17.0 (1700.4)
+          CoreWLANKit: 17.0 (1700.4)
+
+      Interfaces:
+        en0:
+          Card Type: Wi-Fi (0x14E4, 0x4387)
+          Firmware Version: wl0: Apr 16 2024 11:23:45 version 9.10.0
+          MAC Address: aa:bb:cc:dd:ee:ff
+          Status: Connected
+          Current Network Information:
+            HomeNetwork:
+              PHY Mode: 802.11ax
+              BSSID: 11:22:33:44:55:66
+              Channel: 36 (5GHz, 80MHz)
+              Country Code: US
+              Network Type: Infrastructure
+              Security: WPA2 Personal
+              Signal / Noise: -45 dBm / -90 dBm
+              Transmit Rate: 866
+              MCS Index: 9

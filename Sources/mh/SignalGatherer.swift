@@ -26,16 +26,32 @@ struct SignalGatherer: Sendable {
         let deep: DeepData
         switch domain {
         case .cpu:
-            let r = await CPUGatherer.deep(runner: runner)
-            if case .value(let d) = r {
+            if case .value(let d) = await CPUGatherer.deep(runner: runner) {
                 deep = .cpu(d)
             } else {
-                deep = .cpu(CPUDeep(fullTopOutput: "(probe failed: \(r))",
+                deep = .cpu(CPUDeep(fullTopOutput: "(deep probe failed)",
                                     thermalPressure: "", uptimeSeconds: 0))
             }
-        case .wifi, .disk, .battery:
-            // Implemented in Task 16
-            fatalError("deep gather not yet implemented for \(domain)")
+        case .wifi:
+            if case .value(let d) = await WifiGatherer.deep(runner: runner) {
+                deep = .wifi(d)
+            } else {
+                deep = .wifi(WifiDeep(systemProfilerOutput: "(deep probe failed)",
+                                      dnsTimingMs: nil, gatewayPingMs: nil, traceroute: nil))
+            }
+        case .disk:
+            if case .value(let d) = await DiskGatherer.deep(runner: runner) {
+                deep = .disk(d)
+            } else {
+                deep = .disk(DiskDeep(topDirectories: [], purgeableGB: nil))
+            }
+        case .battery:
+            if case .value(let d) = await BatteryGatherer.deep(runner: runner) {
+                deep = .battery(d)
+            } else {
+                deep = .battery(BatteryDeep(pmsetGFull: "(deep probe failed)",
+                                            powerHistory: "", cycleCount: nil))
+            }
         }
         return DeepSnapshot(domain: domain, shallow: shallow, deep: deep, deepTimestamp: Date())
     }

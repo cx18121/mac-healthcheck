@@ -84,4 +84,78 @@ enum WifiGatherer {
             interface: interface
         ))
     }
+
+    static let deepTimeout: TimeInterval = 3.0
+    static let systemProfilerURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")
+    static let digURL = URL(fileURLWithPath: "/usr/bin/dig")
+    static let pingURL = URL(fileURLWithPath: "/sbin/ping")
+
+    static func deep(runner: ProcessRunner) async -> ProbeResult<WifiDeep> {
+        async let spR = runSystemProfiler(runner: runner)
+        async let digR = runDig(runner: runner)
+        async let pingR = runPing(runner: runner)
+        let (sp, dig, ping) = await (spR, digR, pingR)
+
+        guard case .value(let spOut) = sp else {
+            return .failed("system_profiler did not return data")
+        }
+        let dnsMs: Double? = (dig.value).flatMap(parseDigMs)
+        let gatewayMs: Double? = (ping.value).flatMap(parsePingAvgMs)
+
+        return .value(WifiDeep(
+            systemProfilerOutput: String(spOut.prefix(8192)),
+            dnsTimingMs: dnsMs,
+            gatewayPingMs: gatewayMs,
+            traceroute: nil    // traceroute optional; skipped for v0.1 to keep deep gather <3s
+        ))
+    }
+
+    private static func runSystemProfiler(runner: ProcessRunner) async -> ProbeResult<String> {
+        do {
+            let r = try await runner.run(
+                executableURL: systemProfilerURL, arguments: ["SPAirPortDataType"],
+                stdin: nil, timeout: deepTimeout)
+            return r.exitCode == 0 ? .value(r.stdout) : .failed("exit \(r.exitCode)")
+        } catch ProcessRunnerError.timedOut { return .timedOut }
+        catch { return .failed("\(error)") }
+    }
+
+    private static func runDig(runner: ProcessRunner) async -> ProbeResult<String> {
+        do {
+            let r = try await runner.run(
+                executableURL: digURL, arguments: ["+stats", "+tries=1", "+time=2", "apple.com"],
+                stdin: nil, timeout: deepTimeout)
+            return r.exitCode == 0 ? .value(r.stdout) : .failed("dig exit \(r.exitCode)")
+        } catch { return .failed("\(error)") }
+    }
+
+    private static func runPing(runner: ProcessRunner) async -> ProbeResult<String> {
+        // Resolve default gateway via `netstat -rn -f inet` parse — out of scope for v0.1.
+        // Skip ping for v0.1; return unavailable so deep gather still succeeds.
+        _ = runner
+        return .unavailable
+    }
+
+    static func parseDigMs(_ s: String) -> Double? {
+        if let range = s.range(of: #";; Query time: (\d+) msec"#, options: .regularExpression) {
+            let digits = s[range].compactMap { $0.isNumber ? $0 : nil }
+            return Double(String(digits))
+        }
+        return nil
+    }
+
+    static func parsePingAvgMs(_ s: String) -> Double? {
+        // "round-trip min/avg/max/stddev = 1.234/2.345/3.456/0.123 ms"
+        guard let range = s.range(of: #"min/avg/max/stddev = \S+"#, options: .regularExpression) else {
+            return nil
+        }
+        let parts = s[range].split(separator: "=").last?.trimmingCharacters(in: .whitespaces)
+                            .split(separator: "/")
+        guard let parts = parts, parts.count >= 2 else { return nil }
+        return Double(parts[1])
+    }
+}
+
+extension ProbeResult {
+    var value: T? { if case .value(let v) = self { return v }; return nil }
 }
