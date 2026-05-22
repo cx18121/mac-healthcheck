@@ -16,7 +16,7 @@ struct Doctor: AsyncParsableCommand {
             allGreen = await checkExists(binary) && allGreen
         }
 
-        // Codex path discovery
+        // Codex path discovery: check well-known paths first, then fall back to `which codex`.
         let codexCandidates = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
         var codexFound: String? = nil
         for path in codexCandidates {
@@ -27,7 +27,14 @@ struct Doctor: AsyncParsableCommand {
             }
         }
         if codexFound == nil {
-            print("✗ codex not found at \(codexCandidates.joined(separator: " or "))")
+            // Try `/usr/bin/which codex` (uses the user's PATH, picks up npm/pnpm/fnm installs)
+            if let path = await whichCodex(runner: runner) {
+                codexFound = path
+                print("✓ codex at \(path) (via PATH)")
+            }
+        }
+        if codexFound == nil {
+            print("✗ codex not found at \(codexCandidates.joined(separator: " or ")), nor via `which codex`")
             print("  → install via: brew install codex   (or npm i -g codex)")
             allGreen = false
         }
@@ -41,7 +48,12 @@ struct Doctor: AsyncParsableCommand {
                     arguments: ["login", "status"],
                     stdin: nil, timeout: 5.0
                 )
-                if result.exitCode == 0 && result.stdout.lowercased().contains("logged in") {
+                // `codex login status` prints "Logged in using ChatGPT" when authed.
+                // Anchor on "logged in using" (which doesn't appear in "Not logged in").
+                // NOTE: codex writes this line to stderr (not stdout) when launched
+                // without a controlling TTY, so we check both streams.
+                let combined = (result.stdout + "\n" + result.stderr).lowercased()
+                if result.exitCode == 0 && combined.contains("logged in using") {
                     print("✓ codex authenticated")
                 } else {
                     print("✗ codex not authenticated — run: codex login")
@@ -74,6 +86,21 @@ struct Doctor: AsyncParsableCommand {
         } else {
             print("✗ \(path) — required probe binary missing")
             return false
+        }
+    }
+
+    private func whichCodex(runner: ProcessRunner) async -> String? {
+        do {
+            let result = try await runner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/which"),
+                arguments: ["codex"],
+                stdin: nil, timeout: 2.0
+            )
+            guard result.exitCode == 0 else { return nil }
+            let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.isEmpty ? nil : path
+        } catch {
+            return nil
         }
     }
 }
