@@ -1,1 +1,15 @@
-{}
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["domain", "reasoning"],
+  "properties": {
+    "domain": {
+      "type": "string",
+      "enum": ["wifi", "cpu", "disk", "battery", "none"]
+    },
+    "reasoning": {
+      "type": "string",
+      "maxLength": 300
+    }
+  }
+}
