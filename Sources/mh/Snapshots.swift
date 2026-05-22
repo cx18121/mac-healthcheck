@@ -2,9 +2,15 @@ import Foundation
 
 // MARK: - Shallow per-domain structs
 
+struct LoadAverage: Codable, Sendable {
+    let oneMin: Double
+    let fiveMin: Double
+    let fifteenMin: Double
+}
+
 struct CPUShallow: Codable, Sendable {
-    let loadAverage: [Double]      // 1, 5, 15 minute
-    let topProcesses: [TopProcess] // up to 5
+    let loadAverage: LoadAverage
+    let topProcesses: [TopProcess]
 }
 
 struct TopProcess: Codable, Sendable {
@@ -36,7 +42,9 @@ struct BatteryShallow: Codable, Sendable {
     let percent: Int
     let onAC: Bool
     let charging: Bool
-    let timeToEmptyMinutes: Int?
+    /// Minutes to empty when discharging; minutes to full when charging. Read jointly
+    /// with `charging` for semantic interpretation.
+    let timeRemainingMinutes: Int?
 }
 
 // MARK: - Composite snapshots
@@ -53,11 +61,14 @@ struct ShallowSnapshot: Codable, Sendable {
 
 struct DeepSnapshot: Codable, Sendable {
     let domain: Domain
-    let shallow: ShallowSnapshot
+    let shallow: ShallowSnapshot   // contains shallow.timestamp from the shallow gather
     let deep: DeepData
-    let timestamp: Date
+    /// When the deep gather completed. See `shallow.timestamp` for when shallow gather ran.
+    let deepTimestamp: Date
 }
 
+// Synthesized Codable encodes as a single-keyed object: {"cpu": {...}}, {"wifi": {...}}, etc.
+// The single key is the exact case label (cpu/wifi/disk/battery) — not a "type" discriminator.
 enum DeepData: Codable, Sendable {
     case cpu(CPUDeep)
     case wifi(WifiDeep)
