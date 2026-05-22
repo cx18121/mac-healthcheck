@@ -16,25 +16,17 @@ struct Doctor: AsyncParsableCommand {
             allGreen = await checkExists(binary) && allGreen
         }
 
-        // Codex path discovery: check well-known paths first, then fall back to `which codex`.
-        let codexCandidates = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
-        var codexFound: String? = nil
-        for path in codexCandidates {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                codexFound = path
+        // Codex path discovery: shared with MH.run so the two don't drift.
+        // Well-known Homebrew paths first, then `which codex` for npm/pnpm/fnm installs.
+        let codexFound = await CodexClient.resolvePath(runner: runner)
+        if let path = codexFound {
+            if CodexClient.wellKnownPaths.contains(path) {
                 print("✓ codex at \(path)")
-                break
-            }
-        }
-        if codexFound == nil {
-            // Try `/usr/bin/which codex` (uses the user's PATH, picks up npm/pnpm/fnm installs)
-            if let path = await whichCodex(runner: runner) {
-                codexFound = path
+            } else {
                 print("✓ codex at \(path) (via PATH)")
             }
-        }
-        if codexFound == nil {
-            print("✗ codex not found at \(codexCandidates.joined(separator: " or ")), nor via `which codex`")
+        } else {
+            print("✗ codex not found at \(CodexClient.wellKnownPaths.joined(separator: " or ")), nor via `which codex`")
             print("  → install via: brew install codex   (or npm i -g codex)")
             allGreen = false
         }
@@ -89,18 +81,4 @@ struct Doctor: AsyncParsableCommand {
         }
     }
 
-    private func whichCodex(runner: ProcessRunner) async -> String? {
-        do {
-            let result = try await runner.run(
-                executableURL: URL(fileURLWithPath: "/usr/bin/which"),
-                arguments: ["codex"],
-                stdin: nil, timeout: 2.0
-            )
-            guard result.exitCode == 0 else { return nil }
-            let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            return path.isEmpty ? nil : path
-        } catch {
-            return nil
-        }
-    }
 }

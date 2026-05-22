@@ -13,11 +13,33 @@ actor CodexClient {
     private let codexURL: URL
     private(set) var threadId: String?
     static let callTimeout: TimeInterval = 30.0
+    static let wellKnownPaths = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
 
     init(runner: ProcessRunner = FoundationProcessRunner(),
          codexPath: String = "/opt/homebrew/bin/codex") {
         self.runner = runner
         self.codexURL = URL(fileURLWithPath: codexPath)
+    }
+
+    /// Discovers the codex executable: well-known Homebrew paths first, then `which codex`
+    /// (which picks up npm/pnpm/fnm-installed copies via the user's PATH). Used by both
+    /// `mh doctor` and `MH.run` so they don't drift.
+    static func resolvePath(runner: ProcessRunner) async -> String? {
+        for path in wellKnownPaths {
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+        do {
+            let result = try await runner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/which"),
+                arguments: ["codex"],
+                stdin: nil, timeout: 2.0
+            )
+            guard result.exitCode == 0 else { return nil }
+            let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.isEmpty ? nil : path
+        } catch {
+            return nil
+        }
     }
 
     /// Start a new conversation. Captures and stores the `thread_id` for subsequent resume calls.
