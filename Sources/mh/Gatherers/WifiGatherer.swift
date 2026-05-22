@@ -17,6 +17,8 @@ enum WifiGatherer {
             return .unavailable
         case (.timedOut, _), (_, .timedOut):
             return .timedOut
+        case (.failed(let a), .failed(let b)):
+            return .failed("airport: \(a); networksetup: \(b)")
         case (.failed(let m), _):
             return .failed("airport: \(m)")
         case (_, .failed(let m)):
@@ -58,6 +60,9 @@ enum WifiGatherer {
         let map = airport.components(separatedBy: "\n").reduce(into: [String: String]()) { dict, line in
             let pair = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             if pair.count == 2 { dict[pair[0]] = pair[1] }
+        }
+        guard !map.isEmpty else {
+            return .failed("airport -I output unrecognised (no parseable key:value lines)")
         }
         let rssi = map["agrCtlRSSI"].flatMap(Int.init)
         let linkRate = map["lastTxRate"].flatMap(Double.init)
