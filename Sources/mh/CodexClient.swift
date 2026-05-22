@@ -11,14 +11,17 @@ enum CodexClientError: Error {
 actor CodexClient {
     private let runner: ProcessRunner
     private let codexURL: URL
+    private let model: String?
     private(set) var threadId: String?
     static let callTimeout: TimeInterval = 30.0
     static let wellKnownPaths = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
 
     init(runner: ProcessRunner = FoundationProcessRunner(),
-         codexPath: String = "/opt/homebrew/bin/codex") {
+         codexPath: String = "/opt/homebrew/bin/codex",
+         model: String? = nil) {
         self.runner = runner
         self.codexURL = URL(fileURLWithPath: codexPath)
+        self.model = model
     }
 
     /// Discovers the codex executable: well-known Homebrew paths first, then `which codex`
@@ -48,7 +51,9 @@ actor CodexClient {
         schemaFile: URL,
         decoding: T.Type
     ) async throws -> T {
-        let args = ["exec", "--json", "--output-schema", schemaFile.path, "-"]
+        var args = ["exec", "--json", "--output-schema", schemaFile.path]
+        if let m = model { args.append(contentsOf: ["-m", m]) }
+        args.append("-")
         let result = try await runner.run(
             executableURL: codexURL,
             arguments: args,
@@ -76,6 +81,7 @@ actor CodexClient {
         if let schema = schemaFile {
             args.append(contentsOf: ["--output-schema", schema.path])
         }
+        if let m = model { args.append(contentsOf: ["-m", m]) }
         args.append("-")
         let result = try await runner.run(
             executableURL: codexURL,

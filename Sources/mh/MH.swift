@@ -16,7 +16,7 @@ struct MH: AsyncParsableCommand {
         // Falls back to the canonical Homebrew path if resolution fails — CodexClient
         // will then surface a clear error on the first call rather than crashing here.
         let codexPath = await CodexClient.resolvePath(runner: runner) ?? "/opt/homebrew/bin/codex"
-        let codex = CodexClient(runner: runner, codexPath: codexPath)
+        let codex = CodexClient(runner: runner, codexPath: codexPath, model: "gpt-5.5")
 
         FileHandle.standardError.write(Data("[gathering signals... ".utf8))
         let started = Date()
