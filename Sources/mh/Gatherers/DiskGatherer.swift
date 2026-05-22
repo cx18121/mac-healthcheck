@@ -27,7 +27,9 @@ enum DiskGatherer {
         for line in lines {
             let cols = line.split(separator: " ", omittingEmptySubsequences: true)
             guard cols.count >= 9 else { continue }
-            let mountPoint = String(cols[8])
+            // df's mount point is always the last whitespace-separated token; using cols.last
+            // is immune to filesystem device names that contain spaces (rare but possible).
+            guard let mountPoint = cols.last.map(String.init) else { continue }
             guard interestingMounts.contains(mountPoint) else { continue }
             // Capacity is e.g. "4%"
             let pctStr = String(cols[4]).replacingOccurrences(of: "%", with: "")
@@ -44,7 +46,9 @@ enum DiskGatherer {
         return .value(DiskShallow(mounts: mounts))
     }
 
-    /// "234Gi" → 234.0; "500Mi" → 0.488 (GB)
+    /// "234Gi" → 234.0; "500Mi" → 0.488 (GB).
+    /// Returns 0.0 for unrecognised suffixes (e.g. "Bi"). Acceptable for v0.1 because
+    /// our `interestingMounts` set excludes the Apple internal volumes that report sub-GB sizes.
     private static func parseHumanSize(_ s: String) -> Double {
         var s = s
         var multiplier: Double = 1.0
