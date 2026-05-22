@@ -99,8 +99,9 @@ Create file `.gitignore`:
 *.xcodeproj/
 DerivedData/
 .DS_Store
-~/.local/state/mh/
 ```
+
+(The audit log directory `~/.local/state/mh/` lives outside the repo so it doesn't need a gitignore entry — an early plan revision incorrectly included it.)
 
 - [ ] **Step 3: Create `Package.swift`**
 
