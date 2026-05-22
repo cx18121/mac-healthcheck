@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019e4db8-6142-7031-a4b2-189862c6546f"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"report\":\"Slack is at 380% CPU; quit it.\",\"fixes\":[{\"id\":1,\"action\":\"quit_app\",\"params_json\":\"{\\\"bundle_id\\\":\\\"us.slack.Slack\\\"}\",\"description\":\"Quit Slack\",\"dangerous\":false}]}"}}
+{"type":"turn.completed","usage":{"input_tokens":18741,"cached_input_tokens":2432,"output_tokens":126,"reasoning_output_tokens":68}}
