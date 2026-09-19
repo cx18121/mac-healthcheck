@@ -4,9 +4,6 @@
 disk, and battery, sends the signals to Codex CLI for synthesis, prints a markdown report,
 and drops into a chat loop where you can ask follow-ups or run allowlisted fixes.
 
-> **Status: v0.1 (Charlie-only personal-utility build).** See `docs/superpowers/specs/`
-> for the design spec.
-
 ## Requirements
 
 - macOS 14+ (Sonoma) on Apple Silicon
@@ -65,14 +62,3 @@ report.
 - `~/.local/state/mh/error.log` — Codex / probe errors
 - `~/.local/state/mh/sessions.jsonl` — Codex `thread_id`s (resumable via `codex exec resume`)
 
-## Architecture
-
-See `docs/superpowers/specs/2026-05-21-mac-healthcheck-v0.1-design.md`.
-
-## v0.1 non-goals
-
-- Menu bar GUI (v0.2)
-- Background polling
-- Local LLM fallback
-- Sudo system config changes (DNS server, energy settings)
-- App Store distribution
